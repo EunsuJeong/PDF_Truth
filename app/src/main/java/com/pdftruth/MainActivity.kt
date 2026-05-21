@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -123,6 +124,49 @@ class MainActivity : ComponentActivity() {
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White
                         )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Text(
+                            text = "최근 문서",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (uiState.recentDocuments.isEmpty()) {
+                            Text(
+                                text = "최근 문서가 없습니다.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFCBD0D6),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            uiState.recentDocuments.forEach { document ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { viewModel.openRecentDocument(document) }
+                                        .padding(vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = document.displayName,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "마지막 위치: ${document.lastPageIndex + 1}페이지",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFFCBD0D6)
+                                    )
+                                }
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
