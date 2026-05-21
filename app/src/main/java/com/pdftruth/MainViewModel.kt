@@ -67,8 +67,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     throw IllegalArgumentException("페이지 수가 0입니다.")
                 }
 
-                _uiState.update {
-                    it.copy(
+                _uiState.update { current ->
+                    current.currentPageBitmap?.recycle()
+                    current.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
                         currentPageIndex = 0,
@@ -95,57 +96,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (_: SecurityException) {
                 pdfRendererEngine.close()
                 if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
-                _uiState.update {
-                    it.copy(
+                _uiState.update { current ->
+                    current.currentPageBitmap?.recycle()
+                    current.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
                         currentPageBitmap = null,
                         pageCount = 0,
                         currentPageIndex = 0,
                         isLoading = false,
-                        errorMessage = "PDF 읽기 권한이 없거나 만료되었습니다. PDF를 다시 선택해 주세요."
+                        errorMessage = "권한이 만료되었습니다. PDF를 다시 선택해 주세요."
                     )
                 }
             } catch (_: IOException) {
                 pdfRendererEngine.close()
                 if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
-                _uiState.update {
-                    it.copy(
+                _uiState.update { current ->
+                    current.currentPageBitmap?.recycle()
+                    current.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
                         currentPageBitmap = null,
                         pageCount = 0,
                         currentPageIndex = 0,
                         isLoading = false,
-                        errorMessage = "파일을 열 수 없습니다. 파일이 삭제되었거나 손상되었을 수 있습니다. PDF를 다시 선택해 주세요."
+                        errorMessage = "파일이 삭제되었거나 이동되었습니다. PDF를 다시 선택해 주세요."
                     )
                 }
             } catch (_: IllegalArgumentException) {
                 pdfRendererEngine.close()
                 if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
-                _uiState.update {
-                    it.copy(
+                _uiState.update { current ->
+                    current.currentPageBitmap?.recycle()
+                    current.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
                         currentPageBitmap = null,
                         pageCount = 0,
                         currentPageIndex = 0,
                         isLoading = false,
-                        errorMessage = "PDF를 렌더링할 수 없습니다."
+                        errorMessage = "PDF를 열 수 없습니다."
                     )
                 }
             } catch (_: Exception) {
                 pdfRendererEngine.close()
                 if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
-                _uiState.update {
-                    it.copy(
+                _uiState.update { current ->
+                    current.currentPageBitmap?.recycle()
+                    current.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
                         currentPageBitmap = null,
                         pageCount = 0,
                         currentPageIndex = 0,
                         isLoading = false,
-                        errorMessage = "PDF 처리 중 오류가 발생했습니다."
+                        errorMessage = "PDF를 열 수 없습니다."
                     )
                 }
             }
@@ -234,15 +239,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 updateRecentDocumentOnOpenOrPageChange(pageIndex)
             } catch (_: SecurityException) {
                 _uiState.update {
-                    it.copy(isLoading = false, errorMessage = "PDF 읽기 권한이 없거나 만료되었습니다. PDF를 다시 선택해 주세요.")
+                    it.copy(isLoading = false, errorMessage = "권한이 만료되었습니다. PDF를 다시 선택해 주세요.")
                 }
             } catch (_: IOException) {
                 _uiState.update {
-                    it.copy(isLoading = false, errorMessage = "파일을 읽을 수 없습니다. 파일 상태를 확인하거나 PDF를 다시 선택해 주세요.")
+                    it.copy(isLoading = false, errorMessage = "파일이 삭제되었거나 이동되었습니다.")
                 }
             } catch (_: IllegalArgumentException) {
                 _uiState.update {
-                    it.copy(isLoading = false, errorMessage = "페이지 렌더링에 실패했습니다.")
+                    it.copy(isLoading = false, errorMessage = "PDF 렌더링 중 오류가 발생했습니다.")
                 }
             } catch (_: IllegalStateException) {
                 _uiState.update {
@@ -250,7 +255,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (_: Exception) {
                 _uiState.update {
-                    it.copy(isLoading = false, errorMessage = "페이지 처리 중 오류가 발생했습니다.")
+                    it.copy(isLoading = false, errorMessage = "PDF 렌더링 중 오류가 발생했습니다.")
                 }
             }
         }

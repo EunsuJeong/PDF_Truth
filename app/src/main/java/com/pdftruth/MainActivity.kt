@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
 
                         Button(
                             onClick = {
+                                scale = 1f
                                 viewModel.clearError()
                                 val openPdfIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                                     addCategory(Intent.CATEGORY_OPENABLE)
@@ -183,7 +184,10 @@ class MainActivity : ComponentActivity() {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { viewModel.openRecentDocument(document) }
+                                        .clickable {
+                                            scale = 1f
+                                            viewModel.openRecentDocument(document)
+                                        }
                                         .padding(vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
@@ -228,13 +232,6 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(16.dp))
 
                         if (currentPageBitmap != null) {
-                            Text(
-                                text = "${(scale * 100).toInt()}%",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFCBD0D6),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
