@@ -2,11 +2,11 @@ package com.pdftruth
 
 import android.app.Application
 import android.database.Cursor
-import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdftruth.storage.LastPageStorage
 import com.pdftruth.viewer.engine.PdfRendererEngine
 import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,18 +14,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-data class MainUiState(
-    val selectedPdfUri: Uri? = null,
-    val selectedPdfName: String? = null,
-    val currentPageIndex: Int = 0,
-    val pageCount: Int = 0,
-    val currentPageBitmap: Bitmap? = null,
-    val errorMessage: String? = null,
-    val isLoading: Boolean = false
-)
-
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val targetRenderWidth = 1080
+    private val lastPageStorage = LastPageStorage(getApplication())
 
     private val pdfRendererEngine = PdfRendererEngine { uri ->
         getApplication<Application>().contentResolver.openFileDescriptor(uri, "r")
@@ -65,7 +56,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                renderPage(0)
+                val savedPage = try {
+                    lastPageStorage.readLastPage(uri)
+                } catch (_: Exception) {
+                    null
+                }
+
+                val restorePage = if (savedPage != null && savedPage in 0 until pageCount) {
+                    savedPage
+                } else {
+                    0
+                }
+
+                renderPageInternal(pageIndex = restorePage, shouldSaveLastPage = false)
             } catch (_: SecurityException) {
                 pdfRendererEngine.close()
                 _uiState.update {
@@ -143,10 +146,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (pageIndex < 0 || pageIndex >= state.pageCount) {
             return
         }
-        renderPage(pageIndex)
+        renderPageInternal(pageIndex = pageIndex, shouldSaveLastPage = true)
     }
 
     fun renderPage(pageIndex: Int) {
+        renderPageInternal(pageIndex = pageIndex, shouldSaveLastPage = false)
+    }
+
+    private fun renderPageInternal(pageIndex: Int, shouldSaveLastPage: Boolean) {
         val state = _uiState.value
         if (state.pageCount <= 0) {
             _uiState.update {
@@ -169,6 +176,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     targetHeight = 0
                 )
 
+                var pageSaved = true
                 _uiState.update { current ->
                     current.currentPageBitmap?.takeIf { it != nextBitmap }?.recycle()
                     current.copy(
@@ -177,6 +185,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isLoading = false,
                         errorMessage = null
                     )
+                }
+
+                if (shouldSaveLastPage) {
+                    val selectedUri = _uiState.value.selectedPdfUri
+                    if (selectedUri != null) {
+                        pageSaved = try {
+                            lastPageStorage.saveLastPage(selectedUri, pageIndex)
+                        } catch (_: Exception) {
+                            false
+                        }
+                    }
+                }
+
+                if (!pageSaved) {
+                    _uiState.update {
+                        it.copy(errorMessage = "마지막 페이지 저장에 실패했습니다.")
+                    }
                 }
             } catch (_: SecurityException) {
                 _uiState.update {

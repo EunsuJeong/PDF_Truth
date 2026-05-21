@@ -105,6 +105,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
     implementation("androidx.activity:activity-compose:1.9.1")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
