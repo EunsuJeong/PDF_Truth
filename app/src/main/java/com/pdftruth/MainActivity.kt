@@ -1,0 +1,545 @@
+package com.pdftruth
+
+import android.content.Intent
+import android.os.Bundle
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlin.math.abs
+import kotlin.math.max
+
+class MainActivity : ComponentActivity() {
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+
+    private val viewModel: MainViewModel by viewModels()
+
+    private val pdfPickerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val uri = result.data?.data
+
+            if (uri == null) {
+                return@registerForActivityResult
+            }
+
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                viewModel.openAndRenderFirstPage(uri)
+            } catch (_: SecurityException) {
+                viewModel.setError("PDF 읽기 권한 유지에 실패했습니다.")
+            } catch (_: Exception) {
+                viewModel.setError("PDF 선택 처리 중 오류가 발생했습니다.")
+            }
+        }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            val uiState by viewModel.uiState.collectAsState()
+            val errorMessage = uiState.errorMessage
+            val currentPageBitmap = uiState.currentPageBitmap
+            val pageRatio = if (currentPageBitmap != null && currentPageBitmap.height > 0) {
+                currentPageBitmap.width.toFloat() / currentPageBitmap.height.toFloat()
+            } else {
+                1f
+            }
+
+            val isFirstPage = uiState.currentPageIndex <= 0
+            val isLastPage = uiState.pageCount == 0 || uiState.currentPageIndex >= uiState.pageCount - 1
+            val canNavigate = uiState.pageCount > 0 && !uiState.isLoading
+            val currentPageDisplay = if (uiState.pageCount > 0) uiState.currentPageIndex + 1 else 0
+            val isViewingPdf = uiState.selectedPdfUri != null && uiState.pageCount > 0
+
+            val minScale = 1f
+            val maxScale = 3f
+            var scale by rememberSaveable { mutableFloatStateOf(1f) }
+            var offsetX by rememberSaveable { mutableFloatStateOf(0f) }
+            var offsetY by rememberSaveable { mutableFloatStateOf(0f) }
+            var lastZoomEndAtMillis by rememberSaveable { mutableLongStateOf(0L) }
+            var isTransformInProgress by remember { mutableStateOf(false) }
+            var viewerSize by remember { mutableStateOf(IntSize.Zero) }
+            var zoomRenderRequestToken by remember { mutableIntStateOf(0) }
+            val density = LocalDensity.current
+            val minSwipeThresholdPx = with(density) { 90.dp.toPx() }
+
+            LaunchedEffect(
+                zoomRenderRequestToken,
+                scale,
+                isTransformInProgress,
+                uiState.currentPageIndex,
+                uiState.selectedPdfUri
+            ) {
+                if (
+                    uiState.selectedPdfUri == null ||
+                    uiState.pageCount <= 0 ||
+                    scale <= 1f ||
+                    isTransformInProgress
+                ) {
+                    return@LaunchedEffect
+                }
+
+                val targetScale = scale
+                delay(500)
+                if (!isTransformInProgress && scale > 1f && abs(scale - targetScale) < 0.01f) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "zoom render requested after debounce: scale=$targetScale")
+                    }
+                    viewModel.renderCurrentPageForScale(targetScale)
+                }
+            }
+
+            LaunchedEffect(uiState.selectedPdfUri) {
+                if (uiState.selectedPdfUri == null) {
+                    scale = 1f
+                    offsetX = 0f
+                    offsetY = 0f
+                }
+            }
+
+            var showClearDialog by remember { mutableStateOf(false) }
+            var deleteTargetUri by remember { mutableStateOf<String?>(null) }
+
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF202124)
+                ) {
+                    if (isViewingPdf) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                TextButton(onClick = { viewModel.closePdf() }) {
+                                    Text(text = "닫기")
+                                }
+
+                                Text(
+                                    text = "${currentPageDisplay} / ${uiState.pageCount}",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+
+                                Spacer(modifier = Modifier.width(56.dp))
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .pointerInput(canNavigate, isFirstPage, isLastPage, viewerSize, scale) {
+                                        awaitEachGesture {
+                                            awaitFirstDown(requireUnconsumed = false)
+
+                                            var totalDragX = 0f
+                                            var totalDragY = 0f
+                                            var hasTransform = false
+                                            val scaleWasExactlyOneAtStart = scale == 1f
+
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val pressedCount = event.changes.count { it.pressed }
+                                                val hasAnyPressed = pressedCount > 0
+
+                                                if (pressedCount >= 2) {
+                                                    if (!isTransformInProgress) {
+                                                        isTransformInProgress = true
+                                                    }
+                                                    hasTransform = true
+
+                                                    val zoomChange = event.calculateZoom()
+                                                    val pan = event.calculatePan()
+                                                    val previousScale = scale
+                                                    val newScale = (previousScale * zoomChange).coerceIn(minScale, maxScale)
+
+                                                    if (newScale == 1f) {
+                                                        scale = 1f
+                                                        offsetX = 0f
+                                                        offsetY = 0f
+                                                    } else {
+                                                        scale = newScale
+                                                        offsetX += pan.x
+                                                        offsetY += pan.y
+                                                    }
+
+                                                    if (BuildConfig.DEBUG && abs(newScale - previousScale) >= 0.01f) {
+                                                        Log.d(TAG, "scale changed: $newScale")
+                                                    }
+
+                                                    event.changes.forEach { change ->
+                                                        if (change.positionChanged()) {
+                                                            change.consume()
+                                                        }
+                                                    }
+                                                } else if (!hasTransform && scaleWasExactlyOneAtStart && scale == 1f) {
+                                                    val delta = event.changes.firstOrNull()?.positionChange() ?: Offset.Zero
+                                                    totalDragX += delta.x
+                                                    totalDragY += delta.y
+                                                }
+
+                                                if (!hasAnyPressed) {
+                                                    break
+                                                }
+                                            }
+
+                                            if (hasTransform) {
+                                                isTransformInProgress = false
+                                                lastZoomEndAtMillis = System.currentTimeMillis()
+                                                zoomRenderRequestToken += 1
+                                                return@awaitEachGesture
+                                            }
+
+                                            val swipeThreshold = max(minSwipeThresholdPx, viewerSize.width * 0.15f)
+                                            val enoughDrag = abs(totalDragX) >= swipeThreshold
+                                            val horizontalDominant = abs(totalDragX) > abs(totalDragY)
+                                            val notRightAfterZoom =
+                                                (System.currentTimeMillis() - lastZoomEndAtMillis) > 180L
+                                            val canSwipe =
+                                                canNavigate &&
+                                                    scaleWasExactlyOneAtStart &&
+                                                    scale == 1f &&
+                                                    enoughDrag &&
+                                                    horizontalDominant &&
+                                                    notRightAfterZoom
+
+                                            if (!canSwipe) {
+                                                return@awaitEachGesture
+                                            }
+
+                                            if (totalDragX < 0f && !isLastPage) {
+                                                if (BuildConfig.DEBUG) {
+                                                    Log.d(TAG, "swipe detected: LEFT/NEXT")
+                                                }
+                                                scale = 1f
+                                                offsetX = 0f
+                                                offsetY = 0f
+                                                viewModel.goToNextPage()
+                                            } else if (totalDragX > 0f && !isFirstPage) {
+                                                if (BuildConfig.DEBUG) {
+                                                    Log.d(TAG, "swipe detected: RIGHT/PREV")
+                                                }
+                                                scale = 1f
+                                                offsetX = 0f
+                                                offsetY = 0f
+                                                viewModel.goToPreviousPage()
+                                            }
+                                        }
+                                    }
+                                    .onSizeChanged { viewerSize = it },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (currentPageBitmap != null) {
+                                    Image(
+                                        bitmap = currentPageBitmap.asImageBitmap(),
+                                        contentDescription = "PDF 현재 페이지",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(pageRatio)
+                                            .graphicsLayer(
+                                                scaleX = scale,
+                                                scaleY = scale,
+                                                translationX = offsetX,
+                                                translationY = offsetY
+                                            )
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            if (uiState.isLoading) {
+                                Text(
+                                    text = "페이지를 불러오는 중입니다...",
+                                    color = Color(0xFFCBD0D6),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Button(
+                                    onClick = {
+                                        scale = 1f
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                        viewModel.goToPreviousPage()
+                                    },
+                                    enabled = canNavigate && !isFirstPage
+                                ) {
+                                    Text(text = "이전")
+                                }
+
+                                Spacer(modifier = Modifier.width(16.dp))
+
+                                Button(
+                                    onClick = {
+                                        scale = 1f
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                        viewModel.goToNextPage()
+                                    },
+                                    enabled = canNavigate && !isLastPage
+                                ) {
+                                    Text(text = "다음")
+                                }
+                            }
+
+                            if (!errorMessage.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = errorMessage,
+                                    color = Color(0xFFFFB4AB),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 20.dp, vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Top
+                        ) {
+                            Text(
+                                text = "PDF Truth",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Color.White
+                            )
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            Button(
+                                onClick = {
+                                    scale = 1f
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                    viewModel.clearError()
+                                    val openPdfIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                        type = "application/pdf"
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                                    }
+                                    pdfPickerLauncher.launch(openPdfIntent)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(text = "PDF 선택")
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = uiState.selectedPdfName ?: "선택된 파일 없음",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White
+                            )
+
+                            Spacer(modifier = Modifier.height(18.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "최근 문서",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Color.White
+                                )
+                                if (uiState.recentDocuments.isNotEmpty()) {
+                                    TextButton(onClick = { showClearDialog = true }) {
+                                        Text(
+                                            text = "전체 비우기",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFFCBD0D6)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            if (uiState.recentDocuments.isEmpty()) {
+                                Text(
+                                    text = "최근 문서가 없습니다.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFCBD0D6),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            } else {
+                                uiState.recentDocuments.forEach { document ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                scale = 1f
+                                                offsetX = 0f
+                                                offsetY = 0f
+                                                viewModel.openRecentDocument(document)
+                                            }
+                                            .padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = document.displayName,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = Color.White
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "마지막 위치: ${document.lastPageIndex + 1}페이지",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFFCBD0D6)
+                                            )
+                                        }
+                                        TextButton(onClick = { deleteTargetUri = document.uriString }) {
+                                            Text(
+                                                text = "삭제",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFFCBD0D6)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!errorMessage.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = errorMessage,
+                                    color = Color(0xFFFFB4AB),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 개별 삭제 확인 다이얼로그
+            val targetUri = deleteTargetUri
+            if (targetUri != null) {
+                AlertDialog(
+                    onDismissRequest = { deleteTargetUri = null },
+                    title = { Text(text = "목록에서 삭제") },
+                    text = { Text(text = "이 항목을 최근 문서 목록에서 삭제합니다.\n실제 PDF 파일은 삭제되지 않습니다.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            viewModel.removeRecentDocument(targetUri)
+                            deleteTargetUri = null
+                        }) {
+                            Text(text = "삭제")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { deleteTargetUri = null }) {
+                            Text(text = "취소")
+                        }
+                    }
+                )
+            }
+
+            // 전체 비우기 확인 다이얼로그
+            if (showClearDialog) {
+                AlertDialog(
+                    onDismissRequest = { showClearDialog = false },
+                    title = { Text(text = "전체 비우기") },
+                    text = { Text(text = "최근 문서 목록을 모두 비웁니다.\n실제 PDF 파일은 삭제되지 않습니다.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            viewModel.clearAllRecentDocuments()
+                            showClearDialog = false
+                        }) {
+                            Text(text = "비우기")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearDialog = false }) {
+                            Text(text = "취소")
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
