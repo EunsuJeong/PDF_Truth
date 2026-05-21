@@ -1,0 +1,18 @@
+# Local configuration
+local.properties
+
+# Gradle
+.gradle/
+build/
+**/build/
+
+# APK and artifacts
+*.apk
+
+# IDE
+.idea/
+*.iml
+
+# OS temp files
+.DS_Store
+Thumbs.db
