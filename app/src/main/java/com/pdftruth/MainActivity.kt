@@ -8,6 +8,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +32,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +82,13 @@ class MainActivity : ComponentActivity() {
             val isLastPage = uiState.pageCount == 0 || uiState.currentPageIndex >= uiState.pageCount - 1
             val canNavigate = uiState.pageCount > 0 && !uiState.isLoading
             val currentPageDisplay = if (uiState.pageCount > 0) uiState.currentPageIndex + 1 else 0
+
+            val minScale = 1f
+            val maxScale = 3f
+            var scale by rememberSaveable { mutableFloatStateOf(1f) }
+            val transformableState = rememberTransformableState { zoomChange, _, _ ->
+                scale = (scale * zoomChange).coerceIn(minScale, maxScale)
+            }
 
             MaterialTheme {
                 Surface(
@@ -182,9 +195,17 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(16.dp))
 
                         if (currentPageBitmap != null) {
+                            Text(
+                                text = "${(scale * 100).toInt()}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFCBD0D6),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(),
+                                    .fillMaxWidth()
+                                    .transformable(state = transformableState),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Image(
@@ -194,6 +215,10 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier
                                         .fillMaxWidth(0.92f)
                                         .aspectRatio(pageRatio)
+                                        .graphicsLayer(
+                                            scaleX = scale,
+                                            scaleY = scale
+                                        )
                                 )
                             }
                         }
@@ -206,7 +231,10 @@ class MainActivity : ComponentActivity() {
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Button(
-                                onClick = { viewModel.goToPreviousPage() },
+                                onClick = {
+                                    scale = 1f
+                                    viewModel.goToPreviousPage()
+                                },
                                 enabled = canNavigate && !isFirstPage
                             ) {
                                 Text(text = "이전")
@@ -223,7 +251,10 @@ class MainActivity : ComponentActivity() {
                             Spacer(modifier = Modifier.width(16.dp))
 
                             Button(
-                                onClick = { viewModel.goToNextPage() },
+                                onClick = {
+                                    scale = 1f
+                                    viewModel.goToNextPage()
+                                },
                                 enabled = canNavigate && !isLastPage
                             ) {
                                 Text(text = "다음")
