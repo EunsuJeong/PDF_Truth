@@ -10,12 +10,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
@@ -62,12 +64,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             val uiState by viewModel.uiState.collectAsState()
             val errorMessage = uiState.errorMessage
-            val firstPageBitmap = uiState.firstPageBitmap
-            val pageRatio = if (firstPageBitmap != null && firstPageBitmap.height > 0) {
-                firstPageBitmap.width.toFloat() / firstPageBitmap.height.toFloat()
+            val currentPageBitmap = uiState.currentPageBitmap
+            val pageRatio = if (currentPageBitmap != null && currentPageBitmap.height > 0) {
+                currentPageBitmap.width.toFloat() / currentPageBitmap.height.toFloat()
             } else {
                 1f
             }
+
+            val isFirstPage = uiState.currentPageIndex <= 0
+            val isLastPage = uiState.pageCount == 0 || uiState.currentPageIndex >= uiState.pageCount - 1
+            val canNavigate = uiState.pageCount > 0 && !uiState.isLoading
+            val currentPageDisplay = if (uiState.pageCount > 0) uiState.currentPageIndex + 1 else 0
 
             MaterialTheme {
                 Surface(
@@ -119,17 +126,10 @@ class MainActivity : ComponentActivity() {
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        Text(
-                            text = "총 페이지: ${uiState.pageCount}",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.fillMaxWidth(),
-                            color = Color(0xFFCBD0D6)
-                        )
-
                         if (uiState.isLoading) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "첫 페이지를 불러오는 중입니다...",
+                                text = "페이지를 불러오는 중입니다...",
                                 color = Color(0xFFCBD0D6),
                                 style = MaterialTheme.typography.bodySmall
                             )
@@ -137,20 +137,52 @@ class MainActivity : ComponentActivity() {
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        if (firstPageBitmap != null) {
+                        if (currentPageBitmap != null) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Image(
-                                    bitmap = firstPageBitmap.asImageBitmap(),
-                                    contentDescription = "PDF 첫 페이지",
+                                    bitmap = currentPageBitmap.asImageBitmap(),
+                                    contentDescription = "PDF 현재 페이지",
                                     contentScale = ContentScale.Fit,
                                     modifier = Modifier
                                         .fillMaxWidth(0.92f)
                                         .aspectRatio(pageRatio)
                                 )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Button(
+                                onClick = { viewModel.goToPreviousPage() },
+                                enabled = canNavigate && !isFirstPage
+                            ) {
+                                Text(text = "이전")
+                            }
+
+                            Spacer(modifier = Modifier.width(16.dp))
+
+                            Text(
+                                text = "${currentPageDisplay} / ${uiState.pageCount}",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+
+                            Spacer(modifier = Modifier.width(16.dp))
+
+                            Button(
+                                onClick = { viewModel.goToNextPage() },
+                                enabled = canNavigate && !isLastPage
+                            ) {
+                                Text(text = "다음")
                             }
                         }
 

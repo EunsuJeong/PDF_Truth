@@ -17,13 +17,16 @@ import kotlinx.coroutines.launch
 data class MainUiState(
     val selectedPdfUri: Uri? = null,
     val selectedPdfName: String? = null,
+    val currentPageIndex: Int = 0,
     val pageCount: Int = 0,
-    val firstPageBitmap: Bitmap? = null,
+    val currentPageBitmap: Bitmap? = null,
     val errorMessage: String? = null,
     val isLoading: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val targetRenderWidth = 1080
+
     private val pdfRendererEngine = PdfRendererEngine { uri ->
         getApplication<Application>().contentResolver.openFileDescriptor(uri, "r")
     }
@@ -50,30 +53,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     throw IllegalArgumentException("페이지 수가 0입니다.")
                 }
 
-                val firstPageBitmap = pdfRendererEngine.renderPage(
-                    pageIndex = 0,
-                    targetWidth = 1080,
-                    targetHeight = 0
-                )
-
                 _uiState.update {
                     it.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
+                        currentPageIndex = 0,
                         pageCount = pageCount,
-                        firstPageBitmap = firstPageBitmap,
+                        currentPageBitmap = null,
                         isLoading = false,
                         errorMessage = null
                     )
                 }
+
+                renderPage(0)
             } catch (_: SecurityException) {
                 pdfRendererEngine.close()
                 _uiState.update {
                     it.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
-                        firstPageBitmap = null,
+                        currentPageBitmap = null,
                         pageCount = 0,
+                        currentPageIndex = 0,
                         isLoading = false,
                         errorMessage = "PDF 읽기 권한이 없거나 만료되었습니다."
                     )
@@ -84,8 +85,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
-                        firstPageBitmap = null,
+                        currentPageBitmap = null,
                         pageCount = 0,
+                        currentPageIndex = 0,
                         isLoading = false,
                         errorMessage = "파일을 열 수 없습니다. 파일이 없거나 손상되었을 수 있습니다."
                     )
@@ -96,8 +98,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
-                        firstPageBitmap = null,
+                        currentPageBitmap = null,
                         pageCount = 0,
+                        currentPageIndex = 0,
                         isLoading = false,
                         errorMessage = "PDF를 렌더링할 수 없습니다."
                     )
@@ -108,11 +111,92 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         selectedPdfUri = uri,
                         selectedPdfName = fileName,
-                        firstPageBitmap = null,
+                        currentPageBitmap = null,
                         pageCount = 0,
+                        currentPageIndex = 0,
                         isLoading = false,
                         errorMessage = "PDF 처리 중 오류가 발생했습니다."
                     )
+                }
+            }
+        }
+    }
+
+    fun goToPreviousPage() {
+        val state = _uiState.value
+        if (state.currentPageIndex <= 0) {
+            return
+        }
+        goToPage(state.currentPageIndex - 1)
+    }
+
+    fun goToNextPage() {
+        val state = _uiState.value
+        if (state.currentPageIndex >= state.pageCount - 1) {
+            return
+        }
+        goToPage(state.currentPageIndex + 1)
+    }
+
+    fun goToPage(pageIndex: Int) {
+        val state = _uiState.value
+        if (pageIndex < 0 || pageIndex >= state.pageCount) {
+            return
+        }
+        renderPage(pageIndex)
+    }
+
+    fun renderPage(pageIndex: Int) {
+        val state = _uiState.value
+        if (state.pageCount <= 0) {
+            _uiState.update {
+                it.copy(errorMessage = "페이지 수가 없어 이동할 수 없습니다.", isLoading = false)
+            }
+            return
+        }
+
+        if (pageIndex < 0 || pageIndex >= state.pageCount) {
+            return
+        }
+
+        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+
+        viewModelScope.launch {
+            try {
+                val nextBitmap = pdfRendererEngine.renderPage(
+                    pageIndex = pageIndex,
+                    targetWidth = targetRenderWidth,
+                    targetHeight = 0
+                )
+
+                _uiState.update { current ->
+                    current.currentPageBitmap?.takeIf { it != nextBitmap }?.recycle()
+                    current.copy(
+                        currentPageBitmap = nextBitmap,
+                        currentPageIndex = pageIndex,
+                        isLoading = false,
+                        errorMessage = null
+                    )
+                }
+            } catch (_: SecurityException) {
+                _uiState.update {
+                    it.copy(isLoading = false, errorMessage = "PDF 읽기 권한이 없거나 만료되었습니다.")
+                }
+            } catch (_: IOException) {
+                _uiState.update {
+                    it.copy(isLoading = false, errorMessage = "파일을 읽을 수 없습니다. 손상 여부를 확인해주세요.")
+                }
+            } catch (_: IllegalArgumentException) {
+                _uiState.update {
+                    it.copy(isLoading = false, errorMessage = "페이지 렌더링에 실패했습니다.")
+                }
+            } catch (_: IllegalStateException) {
+                _uiState.update {
+                    it.copy(isLoading = false, errorMessage = "PDF가 열려 있지 않습니다.")
+                }
+            } catch (_: Exception) {
+                _uiState.update {
+                    it.copy(isLoading = false, errorMessage = "페이지 처리 중 오류가 발생했습니다.")
                 }
             }
         }
@@ -133,13 +217,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closePdf() {
         pdfRendererEngine.close()
         _uiState.update {
-            it.copy(pageCount = 0, firstPageBitmap = null, isLoading = false)
+            it.currentPageBitmap?.recycle()
+            it.copy(currentPageIndex = 0, pageCount = 0, currentPageBitmap = null, isLoading = false)
         }
     }
 
     override fun onCleared() {
         super.onCleared()
         pdfRendererEngine.close()
+        _uiState.value.currentPageBitmap?.recycle()
     }
 
     private fun extractDisplayName(uri: Uri): String {
