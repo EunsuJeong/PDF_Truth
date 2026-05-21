@@ -12,10 +12,14 @@ import com.pdftruth.storage.RecentDocumentStorage
 import com.pdftruth.viewer.engine.PdfRendererEngine
 import java.io.IOException
 import java.lang.System.currentTimeMillis
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val targetRenderWidth = 1080
@@ -28,6 +32,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState
+    private var renderJob: Job? = null
+    private var currentRenderRequestId: Long = 0L
 
     init {
         loadRecentDocuments()
@@ -59,6 +65,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val fileName = extractDisplayName(uri)
 
             try {
+                renderJob?.cancel()
                 pdfRendererEngine.close()
                 pdfRendererEngine.open(uri)
 
@@ -222,14 +229,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         }
 
-        viewModelScope.launch {
+        renderJob?.cancel()
+        val localRequestId = ++currentRenderRequestId
+
+        renderJob = viewModelScope.launch {
             try {
-                val nextBitmap = pdfRendererEngine.renderPage(
-                    pageIndex = pageIndex,
-                    targetWidth = targetRenderWidth,
-                    targetHeight = 0,
-                    scale = renderScale
-                )
+                val nextBitmap = withContext(Dispatchers.Default) {
+                    pdfRendererEngine.renderPage(
+                        pageIndex = pageIndex,
+                        targetWidth = targetRenderWidth,
+                        targetHeight = 0,
+                        scale = renderScale
+                    )
+                }
+
+                if (localRequestId != currentRenderRequestId) {
+                    nextBitmap.recycle()
+                    return@launch
+                }
 
                 var pageSaved = true
                 _uiState.update { current ->
@@ -262,23 +279,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (updateRecentDocument) {
                     updateRecentDocumentOnOpenOrPageChange(pageIndex)
                 }
+            } catch (_: CancellationException) {
+                if (localRequestId == currentRenderRequestId && showLoading) {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
             } catch (_: SecurityException) {
+                if (localRequestId != currentRenderRequestId) {
+                    return@launch
+                }
                 _uiState.update {
                     it.copy(isLoading = false, errorMessage = "권한이 만료되었습니다. PDF를 다시 선택해 주세요.")
                 }
             } catch (_: IOException) {
+                if (localRequestId != currentRenderRequestId) {
+                    return@launch
+                }
                 _uiState.update {
                     it.copy(isLoading = false, errorMessage = "파일이 삭제되었거나 이동되었습니다.")
                 }
             } catch (_: IllegalArgumentException) {
+                if (localRequestId != currentRenderRequestId) {
+                    return@launch
+                }
                 _uiState.update {
                     it.copy(isLoading = false, errorMessage = "PDF 렌더링 중 오류가 발생했습니다.")
                 }
             } catch (_: IllegalStateException) {
+                if (localRequestId != currentRenderRequestId) {
+                    return@launch
+                }
                 _uiState.update {
                     it.copy(isLoading = false, errorMessage = "PDF가 열려 있지 않습니다.")
                 }
             } catch (_: Exception) {
+                if (localRequestId != currentRenderRequestId) {
+                    return@launch
+                }
                 _uiState.update {
                     it.copy(isLoading = false, errorMessage = "PDF 렌더링 중 오류가 발생했습니다.")
                 }
@@ -351,6 +387,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closePdf() {
+        renderJob?.cancel()
         pdfRendererEngine.close()
         _uiState.update {
             it.currentPageBitmap?.recycle()
@@ -360,6 +397,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        renderJob?.cancel()
         pdfRendererEngine.close()
         _uiState.value.currentPageBitmap?.recycle()
     }
