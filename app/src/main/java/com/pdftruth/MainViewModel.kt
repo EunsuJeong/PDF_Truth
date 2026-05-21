@@ -185,7 +185,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         renderPageInternal(pageIndex = pageIndex, shouldSaveLastPage = false)
     }
 
-    private fun renderPageInternal(pageIndex: Int, shouldSaveLastPage: Boolean) {
+    fun renderCurrentPageForScale(scale: Float) {
+        val state = _uiState.value
+        if (state.pageCount <= 0) {
+            return
+        }
+        renderPageInternal(
+            pageIndex = state.currentPageIndex,
+            shouldSaveLastPage = false,
+            renderScale = scale,
+            updateRecentDocument = false,
+            showLoading = false
+        )
+    }
+
+    private fun renderPageInternal(
+        pageIndex: Int,
+        shouldSaveLastPage: Boolean,
+        renderScale: Float = 1f,
+        updateRecentDocument: Boolean = true,
+        showLoading: Boolean = true
+    ) {
         val state = _uiState.value
         if (state.pageCount <= 0) {
             _uiState.update {
@@ -198,14 +218,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        if (showLoading) {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        }
 
         viewModelScope.launch {
             try {
                 val nextBitmap = pdfRendererEngine.renderPage(
                     pageIndex = pageIndex,
                     targetWidth = targetRenderWidth,
-                    targetHeight = 0
+                    targetHeight = 0,
+                    scale = renderScale
                 )
 
                 var pageSaved = true
@@ -236,7 +259,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                updateRecentDocumentOnOpenOrPageChange(pageIndex)
+                if (updateRecentDocument) {
+                    updateRecentDocumentOnOpenOrPageChange(pageIndex)
+                }
             } catch (_: SecurityException) {
                 _uiState.update {
                     it.copy(isLoading = false, errorMessage = "권한이 만료되었습니다. PDF를 다시 선택해 주세요.")

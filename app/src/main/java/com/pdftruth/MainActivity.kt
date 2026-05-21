@@ -32,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -92,6 +94,17 @@ class MainActivity : ComponentActivity() {
             var scale by rememberSaveable { mutableFloatStateOf(1f) }
             val transformableState = rememberTransformableState { zoomChange, _, _ ->
                 scale = (scale * zoomChange).coerceIn(minScale, maxScale)
+            }
+
+            LaunchedEffect(scale, uiState.currentPageIndex, uiState.selectedPdfUri) {
+                if (uiState.selectedPdfUri == null || uiState.pageCount <= 0 || scale <= 1f) {
+                    return@LaunchedEffect
+                }
+
+                delay(300)
+                if (scale > 1f) {
+                    viewModel.renderCurrentPageForScale(scale)
+                }
             }
 
             var showClearDialog by remember { mutableStateOf(false) }

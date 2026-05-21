@@ -5,6 +5,9 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import java.io.IOException
+import kotlin.math.roundToInt
+
+private const val MAX_BITMAP_SIZE = 4096
 
 class PdfRendererEngine(
     private val openFileDescriptor: (Uri) -> ParcelFileDescriptor?
@@ -39,7 +42,7 @@ class PdfRendererEngine(
     }
 
     @Throws(IllegalStateException::class, IllegalArgumentException::class)
-    fun renderPage(pageIndex: Int, targetWidth: Int, targetHeight: Int): Bitmap {
+    fun renderPage(pageIndex: Int, targetWidth: Int, targetHeight: Int, scale: Float = 1f): Bitmap {
         val pdfRenderer = renderer ?: throw IllegalStateException("PDF가 열려 있지 않습니다.")
 
         if (pageIndex < 0 || pageIndex >= pdfRenderer.pageCount) {
@@ -60,9 +63,13 @@ class PdfRendererEngine(
                 else -> sourceHeight
             }
 
+            val renderScale = scale.coerceIn(1f, 3f)
+            val scaledWidth = (renderWidth * renderScale).roundToInt().coerceIn(1, MAX_BITMAP_SIZE)
+            val scaledHeight = (renderHeight * renderScale).roundToInt().coerceIn(1, MAX_BITMAP_SIZE)
+
             val bitmap = Bitmap.createBitmap(
-                renderWidth.coerceAtLeast(1),
-                renderHeight.coerceAtLeast(1),
+                scaledWidth,
+                scaledHeight,
                 Bitmap.Config.ARGB_8888
             )
             bitmap.eraseColor(android.graphics.Color.WHITE)
