@@ -48,7 +48,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openAndRenderFirstPage(uri: Uri?) {
+    fun openAndRenderFirstPage(uri: Uri?, removeFromRecentOnError: Boolean = false) {
         if (uri == null) {
             return
         }
@@ -94,6 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 renderPageInternal(pageIndex = restorePage, shouldSaveLastPage = false)
             } catch (_: SecurityException) {
                 pdfRendererEngine.close()
+                if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
                 _uiState.update {
                     it.copy(
                         selectedPdfUri = uri,
@@ -107,6 +108,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (_: IOException) {
                 pdfRendererEngine.close()
+                if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
                 _uiState.update {
                     it.copy(
                         selectedPdfUri = uri,
@@ -120,6 +122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (_: IllegalArgumentException) {
                 pdfRendererEngine.close()
+                if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
                 _uiState.update {
                     it.copy(
                         selectedPdfUri = uri,
@@ -133,6 +136,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (_: Exception) {
                 pdfRendererEngine.close()
+                if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
                 _uiState.update {
                     it.copy(
                         selectedPdfUri = uri,
@@ -275,13 +279,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val uri = try {
             Uri.parse(document.uriString)
         } catch (_: Exception) {
-            _uiState.update {
-                it.copy(errorMessage = "최근 문서 URI를 해석할 수 없습니다. PDF를 다시 선택해 주세요.")
+            viewModelScope.launch {
+                recentDocumentStorage.removeRecentDocument(document.uriString)
+                val documents = recentDocumentStorage.getRecentDocuments()
+                _uiState.update {
+                    it.copy(
+                        recentDocuments = documents,
+                        errorMessage = "최근 문서 URI를 해석할 수 없습니다. PDF를 다시 선택해 주세요."
+                    )
+                }
             }
             return
         }
 
-        openAndRenderFirstPage(uri)
+        openAndRenderFirstPage(uri, removeFromRecentOnError = true)
+    }
+
+    fun removeRecentDocument(uriString: String) {
+        viewModelScope.launch {
+            recentDocumentStorage.removeRecentDocument(uriString)
+            val documents = recentDocumentStorage.getRecentDocuments()
+            _uiState.update { it.copy(recentDocuments = documents) }
+        }
+    }
+
+    fun clearAllRecentDocuments() {
+        viewModelScope.launch {
+            recentDocumentStorage.clearRecentDocuments()
+            _uiState.update { it.copy(recentDocuments = emptyList()) }
+        }
+    }
+
+    private suspend fun removeRecentDocumentSilent(uriString: String) {
+        try {
+            recentDocumentStorage.removeRecentDocument(uriString)
+            val documents = recentDocumentStorage.getRecentDocuments()
+            _uiState.update { it.copy(recentDocuments = documents) }
+        } catch (_: Exception) {
+            // 자동 제거 실패는 무시
+        }
     }
 
     fun closePdf() {

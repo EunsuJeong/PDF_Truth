@@ -23,16 +23,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.graphicsLayer
@@ -90,6 +94,9 @@ class MainActivity : ComponentActivity() {
                 scale = (scale * zoomChange).coerceIn(minScale, maxScale)
             }
 
+            var showClearDialog by remember { mutableStateOf(false) }
+            var deleteTargetUri by remember { mutableStateOf<String?>(null) }
+
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -140,12 +147,27 @@ class MainActivity : ComponentActivity() {
 
                         Spacer(modifier = Modifier.height(18.dp))
 
-                        Text(
-                            text = "최근 문서",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        // 최근 문서 헤더 + 전체 비우기
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "최근 문서",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White
+                            )
+                            if (uiState.recentDocuments.isNotEmpty()) {
+                                TextButton(onClick = { showClearDialog = true }) {
+                                    Text(
+                                        text = "전체 비우기",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFFCBD0D6)
+                                    )
+                                }
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -158,25 +180,36 @@ class MainActivity : ComponentActivity() {
                             )
                         } else {
                             uiState.recentDocuments.forEach { document ->
-                                Column(
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { viewModel.openRecentDocument(document) }
-                                        .padding(vertical = 8.dp)
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(
-                                        text = document.displayName,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "마지막 위치: ${document.lastPageIndex + 1}페이지",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFFCBD0D6)
-                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = document.displayName,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "마지막 위치: ${document.lastPageIndex + 1}페이지",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFFCBD0D6)
+                                        )
+                                    }
+                                    TextButton(onClick = { deleteTargetUri = document.uriString }) {
+                                        Text(
+                                            text = "삭제",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFFCBD0D6)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -272,6 +305,51 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+
+            // 개별 삭제 확인 다이얼로그
+            val targetUri = deleteTargetUri
+            if (targetUri != null) {
+                AlertDialog(
+                    onDismissRequest = { deleteTargetUri = null },
+                    title = { Text(text = "목록에서 삭제") },
+                    text = { Text(text = "이 항목을 최근 문서 목록에서 삭제합니다.\n실제 PDF 파일은 삭제되지 않습니다.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            viewModel.removeRecentDocument(targetUri)
+                            deleteTargetUri = null
+                        }) {
+                            Text(text = "삭제")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { deleteTargetUri = null }) {
+                            Text(text = "취소")
+                        }
+                    }
+                )
+            }
+
+            // 전체 비우기 확인 다이얼로그
+            if (showClearDialog) {
+                AlertDialog(
+                    onDismissRequest = { showClearDialog = false },
+                    title = { Text(text = "전체 비우기") },
+                    text = { Text(text = "최근 문서 목록을 모두 비웁니다.\n실제 PDF 파일은 삭제되지 않습니다.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            viewModel.clearAllRecentDocuments()
+                            showClearDialog = false
+                        }) {
+                            Text(text = "비우기")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearDialog = false }) {
+                            Text(text = "취소")
+                        }
+                    }
+                )
             }
         }
     }

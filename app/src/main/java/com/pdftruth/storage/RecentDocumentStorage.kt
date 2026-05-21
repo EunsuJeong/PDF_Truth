@@ -9,11 +9,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val RECENT_DOCUMENT_DATASTORE_NAME = "recent_documents_store"
+private const val MAX_RECENT_DOCUMENTS = 10
 private val Context.recentDocumentDataStore by preferencesDataStore(name = RECENT_DOCUMENT_DATASTORE_NAME)
 
 class RecentDocumentStorage(private val context: Context) {
     private val recentDocumentsKey = stringPreferencesKey("recent_documents")
-    private val maxRecentCount = 10
 
     suspend fun getRecentDocuments(): List<RecentDocument> {
         return try {
@@ -32,7 +32,7 @@ class RecentDocumentStorage(private val context: Context) {
 
             val sorted = current
                 .sortedByDescending { it.lastOpenedAt }
-                .take(maxRecentCount)
+                .take(MAX_RECENT_DOCUMENTS)
 
             context.recentDocumentDataStore.edit { preferences ->
                 preferences[recentDocumentsKey] = serialize(sorted)
@@ -106,6 +106,6 @@ class RecentDocumentStorage(private val context: Context) {
 
         return documents
             .sortedByDescending { it.lastOpenedAt }
-            .take(maxRecentCount)
+            .take(MAX_RECENT_DOCUMENTS)
     }
 }
