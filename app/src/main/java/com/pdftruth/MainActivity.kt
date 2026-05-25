@@ -58,6 +58,7 @@ import kotlin.math.max
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
+    private var lastHandledExternalIntentUri: String? = null
 
     private val pdfPickerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -285,14 +286,6 @@ class MainActivity : ComponentActivity() {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Top
                         ) {
-                            Text(
-                                text = "PDF Truth",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = Color.White
-                            )
-
-                            Spacer(modifier = Modifier.height(20.dp))
-
                             Button(
                                 onClick = {
                                     scale = 1f
@@ -453,5 +446,42 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+        handleExternalPdfIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleExternalPdfIntent(intent)
+    }
+
+    private fun handleExternalPdfIntent(sourceIntent: Intent?) {
+        if (sourceIntent?.action != Intent.ACTION_VIEW) {
+            return
+        }
+
+        val uri = sourceIntent.data ?: return
+        val mimeType = sourceIntent.type?.lowercase()
+        val hasPdfMime = mimeType == "application/pdf" || mimeType?.startsWith("application/pdf;") == true
+        val hasPdfHint = uri.toString().contains(".pdf", ignoreCase = true)
+
+        if (!hasPdfMime && !hasPdfHint) {
+            return
+        }
+
+        val uriKey = uri.toString()
+        if (lastHandledExternalIntentUri == uriKey) {
+            return
+        }
+        lastHandledExternalIntentUri = uriKey
+
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            // 외부 VIEW intent는 persistable 권한이 없는 경우가 있으므로 무시하고 열기를 시도한다.
+        }
+
+        viewModel.openAndRenderFirstPage(uri)
     }
 }
