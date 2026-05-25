@@ -54,7 +54,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openAndRenderFirstPage(uri: Uri?, removeFromRecentOnError: Boolean = false) {
+    fun openAndRenderFirstPage(
+        uri: Uri?,
+        removeFromRecentOnError: Boolean = false,
+        restoreLastPage: Boolean = false
+    ) {
         if (uri == null) {
             return
         }
@@ -87,14 +91,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                val savedPage = try {
-                    lastPageStorage.readLastPage(uri)
-                } catch (_: Exception) {
-                    null
-                }
+                val restorePage = if (restoreLastPage) {
+                    val savedPage = try {
+                        lastPageStorage.readLastPage(uri)
+                    } catch (_: Exception) {
+                        null
+                    }
 
-                val restorePage = if (savedPage != null && savedPage in 0 until pageCount) {
-                    savedPage
+                    if (savedPage != null && savedPage in 0 until pageCount) {
+                        savedPage
+                    } else {
+                        0
+                    }
                 } else {
                     0
                 }
@@ -358,7 +366,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        openAndRenderFirstPage(uri, removeFromRecentOnError = true)
+        openAndRenderFirstPage(
+            uri = uri,
+            removeFromRecentOnError = true,
+            restoreLastPage = true
+        )
     }
 
     fun removeRecentDocument(uriString: String) {
