@@ -286,20 +286,6 @@ class MainActivity : ComponentActivity() {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Top
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Start
-                            ) {
-                                Text(
-                                    text = "PDF Truth",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    color = Color.White
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
                             Button(
                                 onClick = {
                                     scale = 1f
