@@ -98,7 +98,11 @@ class MainActivity : ComponentActivity() {
             val isLastPage = uiState.pageCount == 0 || uiState.currentPageIndex >= uiState.pageCount - 1
             val canNavigate = uiState.pageCount > 0 && !uiState.isLoading
             val currentPageDisplay = if (uiState.pageCount > 0) uiState.currentPageIndex + 1 else 0
-            val isViewingPdf = uiState.selectedPdfUri != null && uiState.pageCount > 0
+            val isViewingPdf = uiState.selectedPdfUri != null || uiState.currentPageBitmap != null
+
+            LaunchedEffect(isViewingPdf) {
+                title = if (isViewingPdf) "" else getString(R.string.app_name)
+            }
 
             val minScale = 1f
             val maxScale = 3f
