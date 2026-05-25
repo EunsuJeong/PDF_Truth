@@ -2,16 +2,20 @@ package com.pdftruth
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,20 +40,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import kotlin.math.abs
+import kotlin.math.max
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -97,26 +102,43 @@ class MainActivity : ComponentActivity() {
             val minScale = 1f
             val maxScale = 3f
             var scale by rememberSaveable { mutableFloatStateOf(1f) }
-            var offsetX by rememberSaveable { mutableFloatStateOf(0f) }
-            var offsetY by rememberSaveable { mutableFloatStateOf(0f) }
-            var lastPinchAtMillis by rememberSaveable { mutableLongStateOf(0L) }
+            var offset by remember { mutableStateOf(Offset.Zero) }
 
-            LaunchedEffect(scale, uiState.currentPageIndex, uiState.selectedPdfUri) {
-                if (uiState.selectedPdfUri == null || uiState.pageCount <= 0 || scale <= 1f) {
-                    return@LaunchedEffect
+            val logGesture: (String) -> Unit = remember {
+                { message ->
+                    Log.d("PDFTruthGesture", message)
+                }
+            }
+
+            val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+                val previousScale = scale
+                val nextScale = (previousScale * zoomChange).coerceIn(minScale, maxScale)
+                scale = nextScale
+
+                if (nextScale <= 1f) {
+                    if (offset != Offset.Zero || previousScale != 1f) {
+                        logGesture("scale reset")
+                    }
+                    scale = 1f
+                    offset = Offset.Zero
+                    return@rememberTransformableState
                 }
 
-                delay(300)
-                if (scale > 1f) {
-                    viewModel.renderCurrentPageForScale(scale)
-                }
+                offset += panChange
             }
 
             LaunchedEffect(uiState.selectedPdfUri) {
                 if (uiState.selectedPdfUri == null) {
                     scale = 1f
-                    offsetX = 0f
-                    offsetY = 0f
+                    offset = Offset.Zero
+                }
+            }
+
+            LaunchedEffect(uiState.currentPageIndex, uiState.selectedPdfUri) {
+                if (scale != 1f || offset != Offset.Zero) {
+                    scale = 1f
+                    offset = Offset.Zero
+                    logGesture("scale reset")
                 }
             }
 
@@ -153,104 +175,84 @@ class MainActivity : ComponentActivity() {
                                 Spacer(modifier = Modifier.width(56.dp))
                             }
 
-                            Box(
+                            BoxWithConstraints(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .fillMaxWidth()
-                                    .pointerInput(scale, canNavigate, isFirstPage, isLastPage, lastPinchAtMillis) {
-                                        var totalDragX = 0f
-                                        var totalDragY = 0f
-                                        val swipeThreshold = 90f
-                                        val swipeBlockAfterPinchMillis = 180L
-
-                                        detectDragGestures(
-                                            onDragStart = {
-                                                totalDragX = 0f
-                                                totalDragY = 0f
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                totalDragX += dragAmount.x
-                                                totalDragY += dragAmount.y
-                                                if (scale <= 1.01f) {
-                                                    change.consume()
-                                                }
-                                            },
-                                            onDragEnd = {
-                                                val canSwipe = canNavigate &&
-                                                    scale <= 1.01f &&
-                                                    abs(totalDragX) > abs(totalDragY) &&
-                                                    abs(totalDragX) >= swipeThreshold &&
-                                                    (System.currentTimeMillis() - lastPinchAtMillis) > swipeBlockAfterPinchMillis
-
-                                                if (!canSwipe) {
-                                                    return@detectDragGestures
-                                                }
-
-                                                // 스와이프 매핑 명시:
-                                                // 오른쪽 방향(손가락 x 증가) 스와이프 -> 이전 페이지
-                                                // 왼쪽 방향(손가락 x 감소) 스와이프 -> 다음 페이지
-                                                if (totalDragX > 0f && !isFirstPage) {
-                                                    scale = 1f
-                                                    offsetX = 0f
-                                                    offsetY = 0f
-                                                    viewModel.goToPreviousPage()
-                                                } else if (totalDragX < 0f && !isLastPage) {
-                                                    scale = 1f
-                                                    offsetX = 0f
-                                                    offsetY = 0f
-                                                    viewModel.goToNextPage()
-                                                }
-                                            }
-                                        )
-                                    }
-                                    .pointerInput(scale) {
-                                        detectTransformGestures { centroid, pan, zoom, _ ->
-                                            val now = System.currentTimeMillis()
-                                            val previousScale = scale
-                                            val newScale = (previousScale * zoom).coerceIn(minScale, maxScale)
-
-                                            if (abs(zoom - 1f) > 0.001f) {
-                                                lastPinchAtMillis = now
-                                            }
-
-                                            if (newScale <= 1f) {
-                                                scale = 1f
-                                                offsetX = 0f
-                                                offsetY = 0f
-                                                return@detectTransformGestures
-                                            }
-
-                                            val scaleFactor = newScale / previousScale.coerceAtLeast(0.001f)
-                                            var nextOffsetX = (offsetX + centroid.x) * scaleFactor - centroid.x
-                                            var nextOffsetY = (offsetY + centroid.y) * scaleFactor - centroid.y
-
-                                            if (newScale > 1f) {
-                                                nextOffsetX += pan.x
-                                                nextOffsetY += pan.y
-                                            }
-
-                                            scale = newScale
-                                            offsetX = nextOffsetX
-                                            offsetY = nextOffsetY
-                                        }
-                                    },
+                                    .fillMaxWidth(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (currentPageBitmap != null) {
-                                    Image(
-                                        bitmap = currentPageBitmap.asImageBitmap(),
-                                        contentDescription = "PDF 현재 페이지",
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(pageRatio)
-                                            .graphicsLayer(
-                                                scaleX = scale,
-                                                scaleY = scale,
-                                                translationX = offsetX,
-                                                translationY = offsetY
-                                            )
-                                    )
+                                val density = LocalDensity.current
+                                val swipeThresholdDp = max(maxWidth.value * 0.12f, 80f)
+                                val swipeThresholdPx = with(density) { swipeThresholdDp.dp.toPx() }
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pointerInput(scale, canNavigate, isFirstPage, isLastPage, swipeThresholdPx) {
+                                        awaitEachGesture {
+                                            awaitFirstDown(requireUnconsumed = false)
+                                            var totalDragX = 0f
+                                            var totalDragY = 0f
+                                            var maxPointerCount = 1
+
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val pressedCount = event.changes.count { it.pressed }
+                                                if (pressedCount == 0) {
+                                                    break
+                                                }
+
+                                                maxPointerCount = max(maxPointerCount, pressedCount)
+
+                                                val change = event.changes.firstOrNull { it.pressed } ?: event.changes.first()
+                                                val delta = change.positionChange()
+                                                totalDragX += delta.x
+                                                totalDragY += delta.y
+
+                                                if (scale == 1f && maxPointerCount < 2 && abs(totalDragX) > abs(totalDragY)) {
+                                                    change.consume()
+                                                }
+                                            }
+
+                                            val canSwipe =
+                                                canNavigate &&
+                                                scale == 1f &&
+                                                maxPointerCount < 2 &&
+                                                abs(totalDragX) > abs(totalDragY) &&
+                                                abs(totalDragX) >= swipeThresholdPx
+
+                                            if (!canSwipe) {
+                                                return@awaitEachGesture
+                                            }
+
+                                            if (totalDragX < 0f && !isLastPage) {
+                                                viewModel.goToNextPage()
+                                                logGesture("swipe next")
+                                            } else if (totalDragX > 0f && !isFirstPage) {
+                                                viewModel.goToPreviousPage()
+                                                logGesture("swipe previous")
+                                            }
+                                        }
+                                        }
+                                        .transformable(state = transformableState),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (currentPageBitmap != null) {
+                                        Image(
+                                            bitmap = currentPageBitmap.asImageBitmap(),
+                                            contentDescription = "PDF 현재 페이지",
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .aspectRatio(pageRatio)
+                                                .graphicsLayer(
+                                                    scaleX = scale,
+                                                    scaleY = scale,
+                                                    translationX = offset.x,
+                                                    translationY = offset.y
+                                                )
+                                        )
+                                    }
                                 }
                             }
 
@@ -262,38 +264,6 @@ class MainActivity : ComponentActivity() {
                                     color = Color(0xFFCBD0D6),
                                     style = MaterialTheme.typography.bodySmall
                                 )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Button(
-                                    onClick = {
-                                        scale = 1f
-                                        offsetX = 0f
-                                        offsetY = 0f
-                                        viewModel.goToPreviousPage()
-                                    },
-                                    enabled = canNavigate && !isFirstPage
-                                ) {
-                                    Text(text = "이전")
-                                }
-
-                                Spacer(modifier = Modifier.width(16.dp))
-
-                                Button(
-                                    onClick = {
-                                        scale = 1f
-                                        offsetX = 0f
-                                        offsetY = 0f
-                                        viewModel.goToNextPage()
-                                    },
-                                    enabled = canNavigate && !isLastPage
-                                ) {
-                                    Text(text = "다음")
-                                }
                             }
 
                             if (!errorMessage.isNullOrBlank()) {
@@ -326,8 +296,7 @@ class MainActivity : ComponentActivity() {
                             Button(
                                 onClick = {
                                     scale = 1f
-                                    offsetX = 0f
-                                    offsetY = 0f
+                                    offset = Offset.Zero
                                     viewModel.clearError()
                                     val openPdfIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                                         addCategory(Intent.CATEGORY_OPENABLE)
@@ -392,8 +361,7 @@ class MainActivity : ComponentActivity() {
                                             .fillMaxWidth()
                                             .clickable {
                                                 scale = 1f
-                                                offsetX = 0f
-                                                offsetY = 0f
+                                                offset = Offset.Zero
                                                 viewModel.openRecentDocument(document)
                                             }
                                             .padding(vertical = 8.dp),
