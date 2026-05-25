@@ -19,12 +19,10 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
@@ -87,17 +85,22 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
             val errorMessage = uiState.errorMessage
             val currentPageBitmap = uiState.currentPageBitmap
-            val pageRatio = if (currentPageBitmap != null && currentPageBitmap.height > 0) {
-                currentPageBitmap.width.toFloat() / currentPageBitmap.height.toFloat()
-            } else {
-                1f
-            }
 
             val isFirstPage = uiState.currentPageIndex <= 0
             val isLastPage = uiState.pageCount == 0 || uiState.currentPageIndex >= uiState.pageCount - 1
             val canNavigate = uiState.pageCount > 0 && !uiState.isLoading
             val currentPageDisplay = if (uiState.pageCount > 0) uiState.currentPageIndex + 1 else 0
-            val isViewingPdf = uiState.selectedPdfUri != null && uiState.pageCount > 0
+            val isViewingPdf = uiState.selectedPdfUri != null || uiState.currentPageBitmap != null
+
+            LaunchedEffect(isViewingPdf) {
+                if (isViewingPdf) {
+                    actionBar?.hide()
+                    title = ""
+                } else {
+                    actionBar?.show()
+                    title = getString(R.string.app_name)
+                }
+            }
 
             val minScale = 1f
             val maxScale = 3f
@@ -151,44 +154,19 @@ class MainActivity : ComponentActivity() {
                     color = Color(0xFF202124)
                 ) {
                     if (isViewingPdf) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        BoxWithConstraints(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                TextButton(onClick = { viewModel.closePdf() }) {
-                                    Text(text = "닫기")
-                                }
+                            val density = LocalDensity.current
+                            val swipeThresholdDp = max(maxWidth.value * 0.12f, 80f)
+                            val swipeThresholdPx = with(density) { swipeThresholdDp.dp.toPx() }
 
-                                Text(
-                                    text = "${currentPageDisplay} / ${uiState.pageCount}",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-
-                                Spacer(modifier = Modifier.width(56.dp))
-                            }
-
-                            BoxWithConstraints(
+                            Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val density = LocalDensity.current
-                                val swipeThresholdDp = max(maxWidth.value * 0.12f, 80f)
-                                val swipeThresholdPx = with(density) { swipeThresholdDp.dp.toPx() }
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .pointerInput(scale, canNavigate, isFirstPage, isLastPage, swipeThresholdPx) {
+                                    .fillMaxSize()
+                                    .padding(8.dp)
+                                    .pointerInput(scale, canNavigate, isFirstPage, isLastPage, swipeThresholdPx) {
                                         awaitEachGesture {
                                             awaitFirstDown(requireUnconsumed = false)
                                             var totalDragX = 0f
@@ -233,45 +211,63 @@ class MainActivity : ComponentActivity() {
                                                 logGesture("swipe previous")
                                             }
                                         }
-                                        }
-                                        .transformable(state = transformableState),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (currentPageBitmap != null) {
-                                        Image(
-                                            bitmap = currentPageBitmap.asImageBitmap(),
-                                            contentDescription = "PDF 현재 페이지",
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .aspectRatio(pageRatio)
-                                                .graphicsLayer(
-                                                    scaleX = scale,
-                                                    scaleY = scale,
-                                                    translationX = offset.x,
-                                                    translationY = offset.y
-                                                )
-                                        )
                                     }
+                                    .transformable(state = transformableState),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (currentPageBitmap != null) {
+                                    Image(
+                                        bitmap = currentPageBitmap.asImageBitmap(),
+                                        contentDescription = "PDF 현재 페이지",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer(
+                                                scaleX = scale,
+                                                scaleY = scale,
+                                                translationX = offset.x,
+                                                translationY = offset.y
+                                            )
+                                    )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            TextButton(
+                                onClick = { viewModel.closePdf() },
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(10.dp)
+                            ) {
+                                Text(text = "닫기")
+                            }
+
+                            Text(
+                                text = "${currentPageDisplay} / ${uiState.pageCount}",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 16.dp)
+                            )
 
                             if (uiState.isLoading) {
                                 Text(
                                     text = "페이지를 불러오는 중입니다...",
                                     color = Color(0xFFCBD0D6),
-                                    style = MaterialTheme.typography.bodySmall
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 16.dp)
                                 )
                             }
 
                             if (!errorMessage.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = errorMessage,
                                     color = Color(0xFFFFB4AB),
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(horizontal = 16.dp, vertical = 44.dp),
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
