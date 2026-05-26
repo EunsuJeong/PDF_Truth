@@ -1,4 +1,5 @@
 import java.io.File
+import java.util.Properties
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -6,6 +7,44 @@ import java.util.Locale
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+val hasKeystoreProperties = keystorePropertiesFile.exists()
+
+if (hasKeystoreProperties) {
+    keystorePropertiesFile.inputStream().use(keystoreProperties::load)
+}
+
+val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.contains("Release", ignoreCase = true)
+}
+
+fun requireKeystoreProperty(name: String): String {
+    return keystoreProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+        ?: throw GradleException("keystore.properties에 ${name} 값이 필요합니다.")
+}
+
+fun buildArtifactFileName(outputDir: File, extension: String): String {
+    val date = SimpleDateFormat("yyMMdd", Locale.US).format(Date())
+    val regex = Regex("^PDF_${date}_(\\d{2})\\.${extension}${'$'}")
+
+    val maxNumber = outputDir
+        .listFiles()
+        ?.mapNotNull { file ->
+            val match = regex.matchEntire(file.name)
+            match?.groupValues?.getOrNull(1)?.toIntOrNull()
+        }
+        ?.maxOrNull()
+        ?: 0
+
+    val nextNumber = maxNumber + 1
+    return "PDF_${date}_${"%02d".format(nextNumber)}.${extension}"
+}
+
+if (releaseTaskRequested && !hasKeystoreProperties) {
+    throw GradleException("Release 빌드를 위해 루트에 keystore.properties 파일이 필요합니다.")
 }
 
 android {
@@ -22,9 +61,27 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasKeystoreProperties) {
+                val storeFilePath = requireKeystoreProperty("storeFile")
+                val releaseStoreFile = rootProject.file(storeFilePath)
+                if (!releaseStoreFile.exists()) {
+                    throw GradleException("Release keystore 파일을 찾을 수 없습니다: ${releaseStoreFile.path}")
+                }
+
+                storeFile = releaseStoreFile
+                storePassword = requireKeystoreProperty("storePassword")
+                keyAlias = requireKeystoreProperty("keyAlias")
+                keyPassword = requireKeystoreProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -56,23 +113,6 @@ android {
     }
 }
 
-fun buildApkFileName(outputDir: File): String {
-    val date = SimpleDateFormat("yyMMdd", Locale.US).format(Date())
-    val regex = Regex("^PDF_${date}_(\\d{2})\\.apk${'$'}")
-
-    val maxNumber = outputDir
-        .listFiles()
-        ?.mapNotNull { file ->
-            val match = regex.matchEntire(file.name)
-            match?.groupValues?.getOrNull(1)?.toIntOrNull()
-        }
-        ?.maxOrNull()
-        ?: 0
-
-    val nextNumber = maxNumber + 1
-    return "PDF_${date}_${"%02d".format(nextNumber)}.apk"
-}
-
 val renameDebugApk by tasks.registering {
     doLast {
         val outputDir = layout.buildDirectory.dir("outputs/apk/debug").get().asFile
@@ -83,7 +123,7 @@ val renameDebugApk by tasks.registering {
             ?.firstOrNull { it.isFile && it.extension == "apk" && !it.name.startsWith("PDF_") }
             ?: return@doLast
 
-        val nextName = buildApkFileName(outputDir)
+        val nextName = buildArtifactFileName(outputDir, "apk")
         val targetFile = File(outputDir, nextName)
 
         if (!targetFile.exists()) {
@@ -92,9 +132,53 @@ val renameDebugApk by tasks.registering {
     }
 }
 
+val renameReleaseApk by tasks.registering {
+    doLast {
+        val outputDir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
+        outputDir.mkdirs()
+
+        val defaultReleaseApk = outputDir
+            .listFiles()
+            ?.firstOrNull { it.isFile && it.extension == "apk" && !it.name.startsWith("PDF_") }
+            ?: return@doLast
+
+        val nextName = buildArtifactFileName(outputDir, "apk")
+        val targetFile = File(outputDir, nextName)
+
+        if (!targetFile.exists()) {
+            defaultReleaseApk.copyTo(targetFile)
+        }
+    }
+}
+
+val renameReleaseBundle by tasks.registering {
+    doLast {
+        val outputDir = layout.buildDirectory.dir("outputs/bundle/release").get().asFile
+        outputDir.mkdirs()
+
+        val defaultReleaseBundle = outputDir
+            .listFiles()
+            ?.firstOrNull { it.isFile && it.extension == "aab" && !it.name.startsWith("PDF_") }
+            ?: return@doLast
+
+        val nextName = buildArtifactFileName(outputDir, "aab")
+        val targetFile = File(outputDir, nextName)
+
+        if (!targetFile.exists()) {
+            defaultReleaseBundle.copyTo(targetFile)
+        }
+    }
+}
+
 tasks.configureEach {
     if (name == "assembleDebug") {
         finalizedBy(renameDebugApk)
+    }
+    if (name == "assembleRelease") {
+        finalizedBy(renameReleaseApk)
+    }
+    if (name == "bundleRelease") {
+        finalizedBy(renameReleaseBundle)
     }
 }
 
