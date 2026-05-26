@@ -1,5 +1,9 @@
 # Local configuration
 local.properties
+keystore.properties
+keystore/
+*.jks
+*.keystore
 
 # Gradle
 .gradle/
