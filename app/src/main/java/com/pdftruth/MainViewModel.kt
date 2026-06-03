@@ -54,7 +54,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openAndRenderFirstPage(uri: Uri?, removeFromRecentOnError: Boolean = false) {
+    fun openAndRenderFirstPage(
+        uri: Uri?,
+        removeFromRecentOnError: Boolean = false,
+        restoreLastPage: Boolean = false
+    ) {
         if (uri == null) {
             return
         }
@@ -63,6 +67,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             val fileName = extractDisplayName(uri)
+            var restoreReadFailed = false
 
             try {
                 renderJob?.cancel()
@@ -87,19 +92,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                val savedPage = try {
-                    lastPageStorage.readLastPage(uri)
-                } catch (_: Exception) {
-                    null
-                }
+                val restorePage = if (restoreLastPage) {
+                    val savedPage = try {
+                        lastPageStorage.readLastPage(uri)
+                    } catch (_: Exception) {
+                        restoreReadFailed = true
+                        null
+                    }
 
-                val restorePage = if (savedPage != null && savedPage in 0 until pageCount) {
-                    savedPage
+                    if (savedPage != null && savedPage in 0 until pageCount) {
+                        savedPage
+                    } else {
+                        0
+                    }
                 } else {
                     0
                 }
 
                 renderPageInternal(pageIndex = restorePage, shouldSaveLastPage = false)
+
+                if (restoreReadFailed) {
+                    _uiState.update {
+                        it.copy(errorMessage = "마지막으로 보던 페이지를 불러오지 못했습니다.\n첫 페이지부터 다시 시작합니다.")
+                    }
+                }
             } catch (_: SecurityException) {
                 pdfRendererEngine.close()
                 if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
@@ -130,9 +146,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         errorMessage = "파일이 삭제되었거나 이동되었습니다. PDF를 다시 선택해 주세요."
                     )
                 }
-            } catch (_: IllegalArgumentException) {
+            } catch (e: IllegalArgumentException) {
                 pdfRendererEngine.close()
                 if (removeFromRecentOnError) removeRecentDocumentSilent(uri.toString())
+                val openErrorMessage = if (isPasswordProtectedPdfError(e)) {
+                    "암호가 설정된 PDF 파일은 현재 지원하지 않습니다."
+                } else {
+                    "PDF 파일을 열 수 없습니다.\n파일이 손상되었거나 지원되지 않는 형식일 수 있습니다."
+                }
                 _uiState.update { current ->
                     current.currentPageBitmap?.recycle()
                     current.copy(
@@ -142,7 +163,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         pageCount = 0,
                         currentPageIndex = 0,
                         isLoading = false,
-                        errorMessage = "PDF를 열 수 없습니다."
+                        errorMessage = openErrorMessage
                     )
                 }
             } catch (_: Exception) {
@@ -157,11 +178,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         pageCount = 0,
                         currentPageIndex = 0,
                         isLoading = false,
-                        errorMessage = "PDF를 열 수 없습니다."
+                        errorMessage = "PDF 파일을 열 수 없습니다.\n파일이 손상되었거나 지원되지 않는 형식일 수 있습니다."
                     )
                 }
             }
         }
+    }
+
+    private fun isPasswordProtectedPdfError(error: IllegalArgumentException): Boolean {
+        val message = error.message?.lowercase().orEmpty()
+        return message.contains("password") ||
+            message.contains("encrypted") ||
+            message.contains("암호")
     }
 
     fun goToPreviousPage() {
@@ -358,7 +386,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        openAndRenderFirstPage(uri, removeFromRecentOnError = true)
+        openAndRenderFirstPage(
+            uri = uri,
+            removeFromRecentOnError = true,
+            restoreLastPage = true
+        )
     }
 
     fun removeRecentDocument(uriString: String) {
