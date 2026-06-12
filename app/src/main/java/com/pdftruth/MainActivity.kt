@@ -58,6 +58,7 @@ import kotlin.math.max
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
+    private var lastHandledExternalIntentUri: String? = null
 
     private val pdfPickerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -72,7 +73,7 @@ class MainActivity : ComponentActivity() {
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
-                viewModel.openAndRenderFirstPage(uri)
+                viewModel.openAndRenderFirstPage(uri = uri, restoreLastPage = false)
             } catch (_: SecurityException) {
                 viewModel.setError("PDF 읽기 권한 유지에 실패했습니다.")
             } catch (_: Exception) {
@@ -453,5 +454,42 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+        handleExternalPdfIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleExternalPdfIntent(intent)
+    }
+
+    private fun handleExternalPdfIntent(sourceIntent: Intent?) {
+        if (sourceIntent?.action != Intent.ACTION_VIEW) {
+            return
+        }
+
+        val uri = sourceIntent.data ?: return
+        val mimeType = sourceIntent.type?.lowercase()
+        val hasPdfMime = mimeType == "application/pdf" || mimeType?.startsWith("application/pdf;") == true
+        val hasPdfHint = uri.toString().contains(".pdf", ignoreCase = true)
+
+        if (!hasPdfMime && !hasPdfHint) {
+            return
+        }
+
+        val uriKey = uri.toString()
+        if (lastHandledExternalIntentUri == uriKey) {
+            return
+        }
+        lastHandledExternalIntentUri = uriKey
+
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            // Some VIEW intents do not grant persistable permission; continue with one-time read.
+        }
+
+        viewModel.openAndRenderFirstPage(uri = uri, restoreLastPage = false)
     }
 }
