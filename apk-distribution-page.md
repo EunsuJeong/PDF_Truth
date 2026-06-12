@@ -1,5 +1,17 @@
 # PDF Truth APK 직접 배포 안내
 
+## 배포 전 미완료 항목
+
+- 공식 배포 URL 미확정
+- 개인정보처리방침 URL 미확정
+- 이용약관 URL 미확정
+- 오픈소스 라이선스 고지 URL 미확정
+- 권장 URL 구조:
+	- 공식 배포 URL: GitHub Releases v1.0.0 페이지
+	- 개인정보처리방침 URL: GitHub Pages 또는 저장소 내 privacy-policy-apk-distribution 문서 URL
+	- 이용약관 URL: GitHub Pages 또는 저장소 내 terms-of-use-apk-distribution 문서 URL
+	- 오픈소스 라이선스 고지 URL: GitHub Pages 또는 저장소 내 THIRD_PARTY_NOTICES 문서 URL
+
 ## 1. 앱 소개
 
 PDF Truth는 PDF 파일을 간단히 열고 읽을 수 있는 무료 PDF 뷰어입니다.
@@ -19,13 +31,13 @@ PDF Truth는 PDF 파일을 간단히 열고 읽을 수 있는 무료 PDF 뷰어�
 - 앱 이름: PDF Truth
 - 앱 버전: v1.0.0
 - 배포일: 2026-06-12
-- 개발자/배포자: [배포자명 입력 필요]
+- 개발자/배포자: Euntrue
 - 가격: 무료
 - 지원 Android 버전: Android 8.0 (API 26) 이상
 
 ## 4. 다운로드
 
-- 공식 배포 페이지: [공식 URL 입력 필요]
+- 공식 배포 페이지: 미확정 (배포 전 확정 필요)
 - APK 파일명: PDFTruth_v1.0.0_260612.apk
 - APK 파일 경로(프로젝트 내부): release/PDFTruth_v1.0.0_260612.apk
 - APK 파일 크기: 6.14 MB (6,441,408 bytes)
@@ -73,7 +85,7 @@ PDF Truth는 PDF 파일을 간단히 열고 읽을 수 있는 무료 PDF 뷰어�
 
 ## 10. 문의
 
-- 문의 이메일: [문의 이메일 입력 필요]
+- 문의 이메일: euntrue@kakao.com
 
 ## 11. 법률 안내
 
